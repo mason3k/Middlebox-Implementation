@@ -12,7 +12,6 @@ def switchy_main(net):
     mymacs = [intf.ethaddr for intf in my_intf]
     myips = [intf.ipaddr for intf in my_intf]
 
-    sliding_window = SlidingWindow()
 
     blastee_IP = get_file_info("b")
     num_packets = get_file_info("n")
@@ -20,12 +19,19 @@ def switchy_main(net):
     sender_window_size = get_file_info("w")
     RTT = get_file_info("rtt")
     recv_timeout = get_file_info("alpha")
+    est_rtt = 2 * RTT
+    timeout = update_timeout(est_rtt)
+
+    sliding_window = SlidingWindow(sender_window_size)
 
     while True:
         gotpkt = True
+        if sliding_window.LHS > num_packets:
+            break
         try:
             #Timeout value will be parameterized!
-            timestamp,dev,pkt = net.recv_packet(timeout=0.15)
+            #TODO is milliseconds ok for recv_timeout?
+            timestamp,dev,pkt = net.recv_packet(timeout=recv_timeout)
         except NoPackets:
             log_debug("No packets available in recv_packet")
             gotpkt = False
@@ -35,10 +41,25 @@ def switchy_main(net):
 
         if gotpkt:
             log_debug("I got a packet")
-            #TODO if we got an ack:
-            #TODO if the ack seq number is in the window (use is_seqNo_in_window):
-            #   -> Remove the entry and refresh LHS (use refresh_LHS)
+            #QUES do we need to check if there's an ACK header here?
+            seq_no = get_ack_seq_no(pkt)
+            if sliding_window.is_seqNo_in_window(seq_no):
+                index = seq_no - sliding_window.LHS
+                sliding_window[index].is_acked = True
+                sliding_window.refresh_LHS()
+
+            #QUES should we recalculate RWMA for acks outside sliding window?
+            #TODO calculate the RTT for the current packet to pass in as prior_rtt
+            est_rtt = update_est_rtt(alpha,est_rtt,prior_rtt)
+            timeout = update_timeout(est_rtt)
+
         else:
+
+            #We know we can send if C1 is satisfied and we haven't
+            #sent all our packets
+            if sliding_window.can_send() and num_packets >= sliding_window.RHS:
+                sliding_window.add_entry()
+                #TODO send packets
             log_debug("Didn't receive anything")
 
             '''
@@ -50,8 +71,23 @@ def switchy_main(net):
             '''
             Do other things here and send packet
             '''
+            #TODO call sliding_window.check_timeouts(timeout)
 
     net.shutdown()
+
+#Calvin I definitely just stole this straight from you lol
+def get_ack_seq_no(pkt):
+    my_header_bytes = pkt[3].to_bytes()
+    #seq_num_int = int.from_bytes(my_header_bytes[0:4], byteorder='big')
+    seq_num_bytes = my_header_bytes[0:4]
+    length_int = int.from_bytes(my_header_bytes[4:6], byteorder='big')
+
+def update_est_rtt(alpha,est_rtt,prior_rtt):
+    new_est_rtt = ((1 - alpha)*est_rtt) + (alpha*prior_rtt)
+    return new_est_rtt
+    
+def update_timeout(est_rtt):
+    return est_rtt * 2
 
 def get_file_info(key):
     f = open("blaster_params.txt", "r")
@@ -65,20 +101,27 @@ def get_file_info(key):
             return ""
 
 
-class SlidingWindow(object,LHS = 1,RHS = 1):
+class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
 
     def __init__(self):
         self.window = []
+        self.window_size = window_size
         self.LHS = LHS
         self.RHS = RHS
+        #QUES do we need this?
+        self.max_seqno = pow(2,32)
 
-    def add_entry(self,entry):
+    def add_entry(self):
+        sw_entry = SlidingWindowEntry(self.RHS)
         self.window.append(entry)
+        if self.RHS == self.max_seqno:
+            self.RHS = 0
+        else:
+            self.RHS += 1
 
     def is_seqNo_in_window(self,seqNo):
-        pos = seqNo - self.LHS
-        mas_pos = max - min + 1
-        return pos < mas_pos
+        #QUES is this right? Book and assignment are different in this respect
+        return seqNo >= self.LHS and seqNo <= self.RHS - 1
 
     def refresh_LHS(self,entry):
         for entry in window:
@@ -86,9 +129,19 @@ class SlidingWindow(object,LHS = 1,RHS = 1):
                 return
             else:
                 self.window.remove(entry)
-                self.LHS +=1
+                #TODO if we have to handle wraparound handle this
+                self.LHS += 1
         return
 
+    def can_send(self):
+        return self.RHS - self.refresh_LHS <= self.window_size
+
+    def check_timeouts(timeout):
+        for entry in self.window:
+            if entry.is_acked == False:
+                #TODO make sure units are comprable between time and timeout
+                if time.time() - entry.time_last_sent >= timeout:
+                    #TODO send packet with entry.seq_no
 
 class SlidingWindowEntry(object):
     
