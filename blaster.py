@@ -18,8 +18,9 @@ def switchy_main(net):
     payload_len = get_file_info("l")
     sender_window_size = get_file_info("w")
     RTT = get_file_info("rtt")
-    recv_timeout = get_file_info("alpha")
-    est_rtt = 2 * RTT
+    recv_timeout = get_file_info("r")
+    alpha = get_file_info("alpha")
+    est_rtt = RTT
     timeout = update_timeout(est_rtt)
 
     sliding_window = SlidingWindow(sender_window_size)
@@ -47,11 +48,10 @@ def switchy_main(net):
                 index = seq_no - sliding_window.LHS
                 sliding_window[index].is_acked = True
                 sliding_window.refresh_LHS()
-
-            #QUES should we recalculate RWMA for acks outside sliding window?
-            #TODO calculate the RTT for the current packet to pass in as prior_rtt
-            est_rtt = update_est_rtt(alpha,est_rtt,prior_rtt)
-            timeout = update_timeout(est_rtt)
+                #QUES should we recalculate RWMA for acks outside sliding window?
+                #TODO calculate the RTT for the current packet to pass in as prior_rtt
+                est_rtt = update_est_rtt(alpha,est_rtt,prior_rtt)
+                timeout = update_timeout(est_rtt)
 
         else:
 
@@ -114,10 +114,7 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
     def add_entry(self):
         sw_entry = SlidingWindowEntry(self.RHS)
         self.window.append(entry)
-        if self.RHS == self.max_seqno:
-            self.RHS = 0
-        else:
-            self.RHS += 1
+        self.RHS += 1
 
     def is_seqNo_in_window(self,seqNo):
         #QUES is this right? Book and assignment are different in this respect
