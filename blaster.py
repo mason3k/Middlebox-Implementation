@@ -26,8 +26,20 @@ def switchy_main(net):
 
     sliding_window = SlidingWindow(sender_window_size)
 
-    # cky - track last time ack was received
-    last_ack_recved = None
+    # For printing
+    total_time_spent = None
+    start_time = None
+    last_ack_time = None
+    num_resent = 0
+    coarse_tos = 0
+    throughput_length = 0
+    throughput = 0
+    goodput_length = 0
+    goodput = 0
+    final_est_rtt = 0 
+    final_to = 0
+    min_rtt = est_rtt
+    max_rtt = est_rtt
 
     while True:
         gotpkt = True
@@ -44,6 +56,11 @@ def switchy_main(net):
             log_debug("Got shutdown signal")
             break
 
+
+        # Set the start time
+        if start_time is None:
+            start_time = time.time()
+
         if gotpkt:
             log_debug("I got a packet")
             #QUES do we need to check if there's an ACK header here?
@@ -55,11 +72,15 @@ def switchy_main(net):
                 pkt_sw_entry = sliding_window[index]
                 if pkt_sw_entry.is_acked == False:
                     pkt_sw_entry.is_acked = True
+                    # last ack received
+                    last_ack_time = time.time()
                     prior_rtt = time.time() - pkt_sw_entry.time_first_sent
                     sliding_window.refresh_LHS()
                     #QUES should we recalculate RWMA for acks outside sliding window?
                     #TODO calculate the RTT for the current packet to pass in as prior_rtt
                     est_rtt = update_est_rtt(alpha,est_rtt,prior_rtt)
+                    min_rtt = min(min_rtt, est_rtt)
+                    max_rtt = max(max_rtt, est_rtt)
                     timeout = update_timeout(est_rtt)
 
         else:
@@ -107,13 +128,37 @@ def switchy_main(net):
                 pkt_to_send = pkt_to_send + RawPacketContents(payload_byte)
 
                 net.send_packet(out_intf.name, pkt_to_send)
+                throughput_length += payload_len
+                goodput_length += payload_len
 
                 #increment RHS by 1 after sending
                 sliding_window.RHS = sliding_window.RHS + 1
 
-            sliding_window.check_timeouts(timeout)
+            # temp = number of times it was resubmitted
+            temp = sliding_window.check_timeouts(timeout, net, payload_len, my_intf)
+            num_resent = num_resent + temp
+            coarse_to  = coarse_to + temp
+            throughput_length = throughput_length + (temp * payload_len)
 
             log_debug("Didn't receive anything")
+
+
+        # cky - should we break at some point? if LHS > num_packets
+        if sliding_window.LHS > num_packets:
+            break
+
+    if last_ack_time is not None:
+        total_time_spent = last_ack_time - start_time
+        #num_resent = 0
+        #coarse_tos = 0
+        throughput = throughput_length / total_time_spent
+        goodput = goodput_length / total_time_spent
+        final_est_rtt = est_rtt
+        final_to = timeout
+        #min_rtt
+        #max_rtt
+        # print output here
+        print_output(total_time_spent, num_resent, coarse_tos, throughput, goodput, final_est_rtt, final_to, min_rtt, max_rtt)
 
     net.shutdown()
 
@@ -143,6 +188,20 @@ def get_file_info(key):
             return ""
 
 
+def print_output(total_time, num_ret, num_tos, throughput, goodput, estRTT, t_out, min_rtt, max_rtt):
+
+    print("Total TX time (s): " + str(total_time))
+    print("Number of reTX: " + str(num_ret))
+    print("Number of coarse TOs: " + str(num_tos))
+    print("Throughput (Bps): " + str(throughput))
+    print("Goodput (Bps): " + str(goodput))
+    print("Final estRTT(ms): " + str(estRTT))
+    print("Final TO(ms): " + str(TO))
+    print("Min RTT(ms):" + str(min_rtt))
+    print("Max RTT(ms):" + str(max_rtt))
+
+
+
 class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
 
     def __init__(self):
@@ -150,8 +209,6 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
         self.window_size = window_size
         self.LHS = LHS
         self.RHS = RHS
-        #QUES do we need this?
-        self.max_seqno = pow(2,32)
 
     def add_entry(self):
         sw_entry = SlidingWindowEntry(self.RHS)
@@ -175,6 +232,9 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
         return self.RHS - self.refresh_LHS <= self.window_size
 
     def check_timeouts(timeout, net, payload_len, my_intf):
+        temp_num_resent = 0
+        
+
         for entry in self.window:
             if entry.is_acked == False:
                 #TODO make sure units are comprable between time and timeout
@@ -221,8 +281,13 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
                     pkt_to_send = pkt_to_send + RawPacketContents(payload_byte)
 
                     net.send_packet(out_intf.name, pkt_to_send)
+                    temp_num_resent += 1
+                    
 
-                    #QUES should we increment RHS for resending? I don't think so
+        return temp_num_resent
+
+
+            
 
 class SlidingWindowEntry(object):
     
