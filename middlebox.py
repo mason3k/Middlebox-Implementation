@@ -17,12 +17,12 @@ def delay(mean, std):
         time.sleep(delay/1000)
 
 def get_file_info(key):
-    f = open("forwarding_table.txt", "r")
+    f = open("middlebox_params.txt", "r")
     key = "-"+key
     for line in f:
         line_list = line.split(" ")
         key_index = line_list.index(key)
-        if key_index < line_list.len():
+        if key_index < len(line_list):
             return line_list[key_index + 1]
         else:
             return ""
@@ -36,9 +36,9 @@ def switchy_main(net):
     random_seed = get_file_info("s")
     random.seed(random_seed) #Extract random seed from params file
     
-    probability_of_drop = get_file_info("p")
-    mean_delay = get_file_info("dm")
-    stand_dev = get_file_info("dstd")
+    probability_of_drop = float(get_file_info("p"))
+    mean_delay = float(get_file_info("dm"))
+    stand_dev = float(get_file_info("dstd"))
 
 
     #blaster on eth0
@@ -47,7 +47,7 @@ def switchy_main(net):
         if intf.name == "middlebox-eth0":
             blaster_intf = intf
         elif intf.name == "middlebox-eth1":
-            blastee.intf = intf
+            blastee_intf.intf = intf
 
     blaster_mac_addr = "10:00:00:00:00:01"
     blastee_mac_addr = "20:00:00:00:00:01"

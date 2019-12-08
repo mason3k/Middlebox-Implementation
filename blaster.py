@@ -3,7 +3,7 @@
 from switchyard.lib.address import *
 from switchyard.lib.packet import *
 from switchyard.lib.userlib import *
-from random import randint
+import random
 import time
 
 
@@ -14,20 +14,21 @@ def switchy_main(net):
 
 
     blastee_IP = get_file_info("b")
-    num_packets = get_file_info("n")
-    payload_len = get_file_info("l")
-    sender_window_size = get_file_info("w")
-    RTT = get_file_info("rtt")
+    num_packets = int(get_file_info("n"))
+    payload_len = int(get_file_info("l"))
+    sender_window_size = int(get_file_info("w"))
+    RTT = float(get_file_info("rtt"))
     recv_timeout = get_file_info("r")
+    recv_timeout = float(recv_timeout)
     recv_timeout = recv_timeout/1000
-    alpha = get_file_info("alpha")
+    alpha = float(get_file_info("alpha"))
     est_rtt = RTT
     timeout = update_timeout(est_rtt)
 
     sliding_window = SlidingWindow(sender_window_size)
 
     # For printing
-    total_time_spent = None
+    total_time_spefnt = None
     start_time = None
     last_ack_time = None
     num_resent = 0
@@ -69,7 +70,7 @@ def switchy_main(net):
             seq_no = get_ack_seq_no(pkt)
             if sliding_window.is_seqNo_in_window(seq_no):
                 index = seq_no - sliding_window.LHS
-                pkt_sw_entry = sliding_window[index]
+                pkt_sw_entry = sliding_window.window[index]
                 if pkt_sw_entry.is_acked == False:
                     pkt_sw_entry.is_acked = True
                     # last ack received
@@ -123,7 +124,7 @@ def switchy_main(net):
                 payload_int = []
                 for i in range(payload_len):
                     payload_int.append(random.randint(0,255))
-                payload_byte = byte(payload_int)
+                payload_byte = bytes(payload_int)
 
                 pkt_to_send = pkt_to_send + RawPacketContents(payload_byte)
 
@@ -131,13 +132,10 @@ def switchy_main(net):
                 throughput_length += payload_len
                 goodput_length += payload_len
 
-                #increment RHS by 1 after sending
-                sliding_window.RHS = sliding_window.RHS + 1
-
             # temp = number of times it was resubmitted
             temp = sliding_window.check_timeouts(timeout, net, payload_len, my_intf)
             num_resent = num_resent + temp
-            coarse_to  = coarse_to + temp
+            coarse_tos  = coarse_tos + temp
             throughput_length = throughput_length + (temp * payload_len)
 
             log_debug("Didn't receive anything")
@@ -165,9 +163,8 @@ def switchy_main(net):
 #Calvin I definitely just stole this straight from you lol
 def get_ack_seq_no(pkt):
     my_header_bytes = pkt[3].to_bytes()
-    #seq_num_int = int.from_bytes(my_header_bytes[0:4], byteorder='big')
-    seq_num_bytes = my_header_bytes[0:4]
-    length_int = int.from_bytes(my_header_bytes[4:6], byteorder='big')
+    seq_num_int = int.from_bytes(my_header_bytes[0:4], byteorder='big')
+    return  seq_num_int
 
 def update_est_rtt(alpha,est_rtt,prior_rtt):
     new_est_rtt = ((1 - alpha)*est_rtt) + (alpha*prior_rtt)
@@ -182,7 +179,7 @@ def get_file_info(key):
     for line in f:
         line_list = line.split(" ")
         key_index = line_list.index(key)
-        if key_index < line_list.len():
+        if key_index < len(line_list):
             return line_list[key_index + 1]
         else:
             return ""
@@ -196,15 +193,15 @@ def print_output(total_time, num_ret, num_tos, throughput, goodput, estRTT, t_ou
     print("Throughput (Bps): " + str(throughput))
     print("Goodput (Bps): " + str(goodput))
     print("Final estRTT(ms): " + str(estRTT))
-    print("Final TO(ms): " + str(TO))
+    print("Final TO(ms): " + str(t_out))
     print("Min RTT(ms):" + str(min_rtt))
     print("Max RTT(ms):" + str(max_rtt))
 
 
 
-class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
+class SlidingWindow:
 
-    def __init__(self):
+    def __init__(self,window_size = 1,LHS = 1,RHS = 1):
         self.window = []
         self.window_size = window_size
         self.LHS = LHS
@@ -212,15 +209,15 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
 
     def add_entry(self):
         sw_entry = SlidingWindowEntry(self.RHS)
-        self.window.append(entry)
+        self.window.append(sw_entry)
         self.RHS += 1
 
     def is_seqNo_in_window(self,seqNo):
         #QUES is this right? Book and assignment are different in this respect
-        return seqNo >= self.LHS and seqNo <= self.RHS - 1
+        return seqNo >= self.LHS and seqNo < self.RHS 
 
-    def refresh_LHS(self,entry):
-        for entry in window:
+    def refresh_LHS(self):
+        for entry in self.window:
             if entry.is_acked == False:
                 return
             else:
@@ -229,23 +226,21 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
         return
 
     def can_send(self):
-        return self.RHS - self.refresh_LHS <= self.window_size
+        return self.RHS - self.LHS < self.window_size
 
-    def check_timeouts(timeout, net, payload_len, my_intf):
+    def check_timeouts(self,timeout, net, payload_len, my_intf):
         temp_num_resent = 0
         
 
         for entry in self.window:
             if entry.is_acked == False:
-                #TODO make sure units are comprable between time and timeout
                 # cky - I think we have to divide timeout by 1000?
                 if time.time() - entry.time_last_sent >= timeout/1000:
+                    seq_no = entry.seq_no
                     entry.time_last_sent = time.time()
 
-                    #TODO send packet with entry.seq_no
                     # cky - we can probably be smarter and move this part below as one fcn to be shared bewteen main and here....
                     out_intf = my_intf[0]
-                    seq_no = entry.seq_no
                     # we also need payload_len
 
                     pkt_to_send = Ethernet() + IPv4() + UDP()
@@ -276,7 +271,7 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
                     payload_int = []
                     for i in range(payload_len):
                         payload_int.append(random.randint(0,255))
-                    payload_byte = byte(payload_int)
+                    payload_byte = bytes(payload_int)
 
                     pkt_to_send = pkt_to_send + RawPacketContents(payload_byte)
 
@@ -289,7 +284,7 @@ class SlidingWindow(object,window_size = 1,LHS = 1,RHS = 1):
 
             
 
-class SlidingWindowEntry(object):
+class SlidingWindowEntry:
     
     def __init__(self, seq_no = None, time_last_sent = time.time(), time_first_sent = time.time()):
         self.is_acked = False

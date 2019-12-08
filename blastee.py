@@ -36,7 +36,7 @@ def switchy_main(net):
             # payload padding
             padding_bytes = 8 - length_int
             padding = bytes(max(0,padding_bytes))
-            ack_payload_bytes = my_header[6:length_int] + padding
+            ack_payload_bytes = my_header_bytes[6:length_int] + padding
 
             # create an ACK
             # construct a packet to be received (below from switchyard documentation
