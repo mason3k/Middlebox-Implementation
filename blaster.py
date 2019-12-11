@@ -88,12 +88,12 @@ def switchy_main(net):
             #We know we can send if C1 is satisfied and we haven't
             #sent all our packets
             if sliding_window.can_send() and num_packets >= sliding_window.RHS:
+                seq_no = sliding_window.RHS
                 sliding_window.add_entry()
 
                 # cky - we should probably make below into a function
                 # prep to send a new packet
                 out_intf = my_intf[0]
-                seq_no = sliding_window.RHS # new RHS updated
                 # we also need payload_len
 
                 pkt_to_send = Ethernet() + IPv4() + UDP()
