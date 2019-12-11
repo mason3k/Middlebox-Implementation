@@ -217,7 +217,8 @@ class SlidingWindow:
         return seqNo >= self.LHS and seqNo < self.RHS 
 
     def refresh_LHS(self):
-        for entry in self.window:
+        temp = self.window.copy()
+        for entry in temp:
             if entry.is_acked == False:
                 return
             else:

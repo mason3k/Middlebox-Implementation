@@ -28,6 +28,8 @@ def switchy_main(net):
             log_debug("Pkt: {}".format(pkt))
 
             # parse out what we need
+            if (not pkt.has_header(IPv4)):
+                break
             my_header_bytes = pkt[3].to_bytes()
             #seq_num_int = int.from_bytes(my_header_bytes[0:4], byteorder='big')
             seq_num_bytes = my_header_bytes[0:4]
