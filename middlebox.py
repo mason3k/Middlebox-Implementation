@@ -47,7 +47,7 @@ def switchy_main(net):
         if intf.name == "middlebox-eth0":
             blaster_intf = intf
         elif intf.name == "middlebox-eth1":
-            blastee_intf.intf = intf
+            blastee_intf = intf
 
     blaster_mac_addr = "10:00:00:00:00:01"
     blastee_mac_addr = "20:00:00:00:00:01"

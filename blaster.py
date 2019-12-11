@@ -64,6 +64,8 @@ def switchy_main(net):
 
         if gotpkt:
             log_debug("I got a packet")
+            if (not pkt.has_header(IPv4)):
+                break
             #QUES do we need to check if there's an ACK header here?
             #cky - I think what we have is good.  we are getting the seq from the ack so that's probably all we need?
 
